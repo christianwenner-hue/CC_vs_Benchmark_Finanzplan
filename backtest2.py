@@ -92,7 +92,26 @@ for i in range(len(df_m) - 1):
 
 results = pd.DataFrame(history)
 
-# --- Grafik ---
+# --- NEU: ZUSAMMENFASSUNG & METRIKEN ---
+st.divider()
+puffer_leer_df = results[results["Cashpuffer"] == 0]
+if not puffer_leer_df.empty:
+    leer_datum = puffer_leer_df.iloc[0]["Datum"].strftime("%B %Y")
+    st.error(f"🚨 **Achtung:** Dein Cash-Puffer war im **{leer_datum}** komplett aufgebraucht!")
+else:
+    st.success(f"✅ **Starkes Setup!** Dein Cash-Puffer hat die gesamte Zeit überlebt.")
+
+col1, col2, col3, col4 = st.columns(4)
+cc_final = results['CC_Gesamt'].iloc[-1]
+bh_final = results['Bench_Entnahme'].iloc[-1]
+puffer_final = results['Cashpuffer'].iloc[-1]
+
+col1.metric("Endwert CC-Strategie", f"{cc_final:,.0f} €", f"{cc_final - total_kapital:,.0f} €")
+col2.metric("Endwert Benchmark", f"{bh_final:,.0f} €", f"{bh_final - total_kapital:,.0f} €")
+col3.metric("Restlicher Puffer", f"{puffer_final:,.0f} €", f"{puffer_final - cash_puffer_start:,.0f} €")
+col4.metric("Entnommen (Netto)", f"{entnommen_n:,.0f} €")
+
+# --- GRAFIK ---
 st.divider()
 fig = go.Figure()
 
@@ -122,63 +141,26 @@ fig.add_trace(go.Scatter(
 for ev in events:
     col = "red" if ev["Typ"] == "Verkauf" else "green"
     fig.add_vline(x=ev["Datum"], line_width=2, line_dash="dash", line_color=col)
-    fig.add_annotation(
-        x=ev["Datum"], y=1.05, yref="paper", 
-        text=f"<b>{ev['Typ']}</b>", showarrow=False, font=dict(color=col, size=12)
-    )
+    fig.add_annotation(x=ev["Datum"], y=1.05, yref="paper", text=f"<b>{ev['Typ']}</b>", showarrow=False, font=dict(color=col, size=12))
 
-fig.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.15), margin=dict(t=80))
+fig.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.15, xanchor="center", x=0.5), margin=dict(t=80))
 st.plotly_chart(fig, use_container_width=True)
 
-# Tabelle & Excel
-st.subheader("📅 Detail-Daten")
+# --- TABELLE & EXCEL ---
+st.subheader("📅 Historische Detail-Daten")
 st.dataframe(results.tail(12), use_container_width=True)
 buffer = io.BytesIO()
 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
     results.to_excel(writer, index=False, sheet_name='Backtest')
 st.download_button("📥 Excel Download", buffer.getvalue(), "Finanz-Check.xlsx")
 
-# --- Ausführliches README ---
+# --- README ---
 with st.expander("📖 README: Erklärung & Wirkungsweise der Strategie"):
     st.markdown("""
     ### 📊 CC-Strategie vs. Benchmark Simulator
-
-    Dieses interaktive Dashboard dient dem Backtesten und Vergleichen einer **Covered Call (CC) ETF-Strategie** mit einer klassischen **Buy & Hold (Benchmark) Strategie** während der Entsparphase. 
-    Das Tool legt besonderen Wert auf eine **100 % realistische steuerliche Betrachtung** (deutsches Steuerrecht inkl. Teilfreistellung) und beinhaltet einen dynamischen **Crash-Schutz** für den CC-ETF.
-
-    ---
-
-    #### ✨ Kernfunktionen
-
-    * **Dynamischer Backtest:** Nutzt reale historische Kursdaten via Yahoo Finance (`yfinance`) ab 2015.
-    * **Interaktive Sidebar:** Passe Kapital, Entnahme, Puffer und Dividende in Echtzeit an.
-    * **Realistische Steuersimulation:** Berechnet Kapitalertragsteuer (26,375 %) inkl. 30 % Teilfreistellung (Faktor 0,7) für Dividenden und Kursgewinne.
-    * **Intelligenter Crash-Schutz:** Wechselt bei einstellbarem Drawdown automatisch vom CC-ETF in den Nasdaq 100 und kehrt bei Erholung zurück.
-    * **Visualisierung:** Gestapelte Flächen (Depot + Puffer) und Benchmark-Linien für maximale Transparenz.
-
-    ---
-
-    #### ⚖️ Die Wirkungsweise des Vergleichs
-
-    **1. Die CC-Strategie (Die "Goldene Gans")**
-    Zielt auf maximalen Cashflow ab, um die Substanz nicht antasten zu müssen.
-    * **Setup:** Kapital wird in ETF-Depot und Cash-Puffer aufgeteilt.
-    * **Motor:** Der ETF schüttet hohe Dividenden aus, die (netto) den Puffer füllen.
-    * **Entnahme:** Kosten werden ausschließlich aus dem Cash-Puffer gedeckt. Die Anteilszahl bleibt konstant, solange der Puffer > 0 ist.
-
-    **2. Die Benchmark-Strategie (Der "Substanz-Verzehr")**
-    Klassischer Buy & Hold Ansatz (z.B. MSCI World) ohne hohe Ausschüttungen.
-    * **Setup:** Gesamtkapital liegt im Index-ETF.
-    * **Entnahme:** Monatlicher Verkauf von Anteilen.
-    * **Steuer-Effekt:** Der Code berechnet den Gewinnanteil und entnimmt einen höheren Brutto-Betrag, um die Steuerlast zu decken und das gewünschte Netto auszuzahlen.
-    * **Historischer Gewinn:** Ermöglicht die Simulation eines bereits im Plus befindlichen Depots zum Startzeitpunkt.
-
-    ---
-
-    #### 🛡️ Der Crash-Schutz (Drawdown-Logik)
-
-    Covered Call ETFs fallen in Crashs stark, erholen sich aber langsamer. Der Algorithmus fungiert als Notbremse:
-    1. **Beobachtung:** Misst monatlich den Drawdown des Nasdaq 100 zum Allzeithoch.
-    2. **Flucht (Rote Linie):** Bei Erreichen des Schwellenwerts (z.B. -20 %) wird in den puren Nasdaq (QQQ) gewechselt.
-    3. **Rückkehr (Grüne Linie):** Bei Erholung (Drawdown < 5 %) erfolgt der Rückwechsel in den CC-ETF.
+    Dieses Dashboard vergleicht eine Covered Call (CC) Strategie mit klassischem Buy & Hold.
+    
+    * **CC-Strategie (Flächen):** Nutzt Dividenden zur Cash-Auffüllung. Entnahmen erfolgen aus dem Puffer.
+    * **Benchmark (Linien):** Monatlicher Anteilsverkauf inkl. Brutto-Steuer-Berechnung für Netto-Auszahlung.
+    * **Crash-Schutz (Vertikale Linien):** Wechselt bei Markteinbruch in den Index, um die Erholung voll mitzunehmen.
     """)
