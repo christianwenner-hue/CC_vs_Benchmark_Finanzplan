@@ -47,10 +47,13 @@ STEUER, FREI = 0.26375, 0.70
 
 for i in range(len(df_m) - 1):
     akt_d, fol_d = df_m.index[i], df_m.index[i+1]
+    
+    # Vorbereitender Snapshot für die Berechnung
     snapshot = {
         "Datum": akt_d, "Jahr": akt_d.year, "CC_Gesamt": cap_cc + cash_cc, 
         "Depotwert_CC": cap_cc, "Cashpuffer": cash_cc, "Bench_Entnahme": cap_bench_e, 
-        "Bench_Pur": cap_bench_p, "Modus": "CC" if modus_cc else "Index"
+        "Bench_Pur": cap_bench_p, "Modus": "CC" if modus_cc else "Index",
+        "QYLD_Price": float(df_m["QYLD"].iloc[i]), "QQQ_Price": float(df_m["QQQ"].iloc[i])
     }
     
     qy_p = (df_m["QYLD"].iloc[i+1] / df_m["QYLD"].iloc[i]) - 1
@@ -92,75 +95,29 @@ for i in range(len(df_m) - 1):
 
 results = pd.DataFrame(history)
 
-# --- NEU: ZUSAMMENFASSUNG & METRIKEN ---
+# --- METRIKEN ---
 st.divider()
 puffer_leer_df = results[results["Cashpuffer"] == 0]
 if not puffer_leer_df.empty:
-    leer_datum = puffer_leer_df.iloc[0]["Datum"].strftime("%B %Y")
-    st.error(f"🚨 **Achtung:** Dein Cash-Puffer war im **{leer_datum}** komplett aufgebraucht!")
+    st.error(f"🚨 **Achtung:** Dein Cash-Puffer war im **{puffer_leer_df.iloc[0]['Datum'].strftime('%B %Y')}** leer!")
 else:
     st.success(f"✅ **Starkes Setup!** Dein Cash-Puffer hat die gesamte Zeit überlebt.")
 
 col1, col2, col3, col4 = st.columns(4)
-cc_final = results['CC_Gesamt'].iloc[-1]
-bh_final = results['Bench_Entnahme'].iloc[-1]
-puffer_final = results['Cashpuffer'].iloc[-1]
-
-col1.metric("Endwert CC-Strategie", f"{cc_final:,.0f} €", f"{cc_final - total_kapital:,.0f} €")
-col2.metric("Endwert Benchmark", f"{bh_final:,.0f} €", f"{bh_final - total_kapital:,.0f} €")
-col3.metric("Restlicher Puffer", f"{puffer_final:,.0f} €", f"{puffer_final - cash_puffer_start:,.0f} €")
+cc_f, bh_f, p_f = results['CC_Gesamt'].iloc[-1], results['Bench_Entnahme'].iloc[-1], results['Cashpuffer'].iloc[-1]
+col1.metric("Endwert CC", f"{cc_f:,.0f} €", f"{cc_f - total_kapital:,.0f} €")
+col2.metric("Endwert Benchmark", f"{bh_f:,.0f} €", f"{bh_f - total_kapital:,.0f} €")
+col3.metric("Rest-Puffer", f"{p_f:,.0f} €", f"{p_f - cash_puffer_start:,.0f} €")
 col4.metric("Entnommen (Netto)", f"{entnommen_n:,.0f} €")
 
 # --- GRAFIK ---
 st.divider()
 fig = go.Figure()
-
-fig.add_trace(go.Scatter(
-    x=results["Datum"], y=results["Depotwert_CC"], name="Depotwert (CC)",
-    stackgroup='one', fillcolor='rgba(31, 119, 180, 0.6)', line=dict(width=0.5, color='#1f77b4'),
-    customdata=results[["CC_Gesamt", "Cashpuffer", "Entnommen_Kum"]],
-    hovertemplate="<b>CC Strategie</b><br>Gesamt: %{customdata[0]:,.0f} €<br>Depot: %{y:,.0f} €<br>Cash: %{customdata[1]:,.0f} €<extra></extra>"
-))
-fig.add_trace(go.Scatter(
-    x=results["Datum"], y=results["Cashpuffer"], name="Cashpuffer",
-    stackgroup='one', fillcolor='rgba(44, 160, 44, 0.6)', line=dict(width=0.5, color='#2ca02c'),
-    hovertemplate="Cash Anteil: %{y:,.0f} €<extra></extra>"
-))
-
-fig.add_trace(go.Scatter(
-    x=results["Datum"], y=results["Bench_Entnahme"], name="Benchmark MIT Entnahme",
-    line=dict(color='#ff7f0e', width=3, dash='dash'),
-    hovertemplate="Benchmark (mit Entnahme): %{y:,.0f} €<extra></extra>"
-))
-fig.add_trace(go.Scatter(
-    x=results["Datum"], y=results["Bench_Pur"], name="Benchmark OHNE Entnahme",
-    line=dict(color='#7f7f7f', width=2, dash='dot'),
-    hovertemplate="Benchmark (ohne Entnahme): %{y:,.0f} €<extra></extra>"
-))
+fig.add_trace(go.Scatter(x=results["Datum"], y=results["Depotwert_CC"], name="Depotwert (CC)", stackgroup='one', fillcolor='rgba(31, 119, 180, 0.6)', line=dict(width=0.5, color='#1f77b4'), customdata=results[["CC_Gesamt", "Cashpuffer", "Entnommen_Kum"]], hovertemplate="<b>CC Strategie</b><br>Gesamt: %{customdata[0]:,.0f} €<br>Depot: %{y:,.0f} €<br>Cash: %{customdata[1]:,.0f} €<extra></extra>"))
+fig.add_trace(go.Scatter(x=results["Datum"], y=results["Cashpuffer"], name="Cashpuffer", stackgroup='one', fillcolor='rgba(44, 160, 44, 0.6)', line=dict(width=0.5, color='#2ca02c'), hovertemplate="Cash Anteil: %{y:,.0f} €<extra></extra>"))
+fig.add_trace(go.Scatter(x=results["Datum"], y=results["Bench_Entnahme"], name="Benchmark MIT Entnahme", line=dict(color='#ff7f0e', width=3, dash='dash'), hovertemplate="Benchmark (mit Entnahme): %{y:,.0f} €<extra></extra>"))
+fig.add_trace(go.Scatter(x=results["Datum"], y=results["Bench_Pur"], name="Benchmark OHNE Entnahme", line=dict(color='#7f7f7f', width=2, dash='dot'), hovertemplate="Benchmark (ohne Entnahme): %{y:,.0f} €<extra></extra>"))
 
 for ev in events:
     col = "red" if ev["Typ"] == "Verkauf" else "green"
-    fig.add_vline(x=ev["Datum"], line_width=2, line_dash="dash", line_color=col)
-    fig.add_annotation(x=ev["Datum"], y=1.05, yref="paper", text=f"<b>{ev['Typ']}</b>", showarrow=False, font=dict(color=col, size=12))
-
-fig.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.15, xanchor="center", x=0.5), margin=dict(t=80))
-st.plotly_chart(fig, use_container_width=True)
-
-# --- TABELLE & EXCEL ---
-st.subheader("📅 Historische Detail-Daten")
-st.dataframe(results.tail(12), use_container_width=True)
-buffer = io.BytesIO()
-with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-    results.to_excel(writer, index=False, sheet_name='Backtest')
-st.download_button("📥 Excel Download", buffer.getvalue(), "Finanz-Check.xlsx")
-
-# --- README ---
-with st.expander("📖 README: Erklärung & Wirkungsweise der Strategie"):
-    st.markdown("""
-    ### 📊 CC-Strategie vs. Benchmark Simulator
-    Dieses Dashboard vergleicht eine Covered Call (CC) Strategie mit klassischem Buy & Hold.
-    
-    * **CC-Strategie (Flächen):** Nutzt Dividenden zur Cash-Auffüllung. Entnahmen erfolgen aus dem Puffer.
-    * **Benchmark (Linien):** Monatlicher Anteilsverkauf inkl. Brutto-Steuer-Berechnung für Netto-Auszahlung.
-    * **Crash-Schutz (Vertikale Linien):** Wechselt bei Markteinbruch in den Index, um die Erholung voll mitzunehmen.
-    """)
+    fig.add_vline(x=ev["Datum"], line_width=2,
