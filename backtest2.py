@@ -20,7 +20,6 @@ with st.sidebar:
     benchmarks = {"Nasdaq 100": "QQQ", "S&P 500": "SPY", "MSCI World": "IWDA.AS"}
     wahl_name = st.selectbox("Benchmark-Linie:", list(benchmarks.keys()))
     bench_ticker = benchmarks[wahl_name]
-    # NEU: Regler für historischen Gewinn beim Benchmark
     bench_gewinn_start = st.slider("Bereits enthaltener Gewinn im Benchmark (%)", 0, 100, 0) / 100
 
     st.header("Entnahme & Logik")
@@ -47,7 +46,6 @@ cap_bench_entnahme = float(total_kapital)
 cap_bench_pur = float(total_kapital)      
 
 einstand_cc = cap_cc
-# NEU: Einstandswert für Benchmark wird um den historischen Gewinn reduziert
 einstand_bench = cap_bench_entnahme * (1 - bench_gewinn_start)
 
 modus_cc = True
@@ -142,7 +140,7 @@ for i in range(len(df_m) - 1):
 
 results = pd.DataFrame(history)
 
-# Metriken & Fazit
+# 5. Metriken & Fazit
 st.divider()
 
 puffer_leer_df = results[results["Cashpuffer"] == 0]
@@ -164,7 +162,7 @@ col4.metric("Entnommen (Netto)", f"{entnommen_total_netto:,.0f} €")
 
 st.divider()
 
-# Diagramm
+# 6. Diagramm
 fig = go.Figure()
 fig.add_trace(go.Scatter(
     x=results["Datum"], y=results["Depotwert"], name="Depotwert (CC)", 
@@ -190,7 +188,7 @@ for ev in events:
 fig.update_layout(margin=dict(t=40), hovermode="x unified")
 st.plotly_chart(fig, width='stretch')
 
-# Tabelle
+# 7. Tabelle
 st.subheader("📅 Jährliche Details (Stand 01.01.)")
 
 yearly = results.groupby("Jahr").first().reset_index()
@@ -221,10 +219,9 @@ styled_df = (
 
 st.dataframe(styled_df, width='stretch')
 
-# --- Excel Download ---
+# 8. Excel Download
 st.divider()
 st.subheader("📥 Berechnungen als Excel herunterladen")
-st.markdown("Lade die exakten monatlichen Berechnungen herunter, aufgeteilt in zwei Tabellenblätter.")
 
 df_cc = results[["Datum", "Depotwert", "Cashpuffer", "CC_Gesamt", "Steuern_Monat", "Modus"]].copy()
 df_cc["Datum"] = df_cc["Datum"].dt.date 
@@ -256,3 +253,53 @@ st.download_button(
     file_name="Backtest_Ergebnisse_Monatlich.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
+
+# 9. README Expander (Neu hinzugefügt)
+st.divider()
+with st.expander("📖 README: Erklärung & Wirkungsweise der Strategie"):
+    st.markdown("""
+    ### 📊 CC-Strategie vs. Benchmark Simulator
+
+    Dieses interaktive Dashboard dient dem Backtesten und Vergleichen einer **Covered Call (CC) ETF-Strategie** mit einer klassischen **Buy & Hold (Benchmark) Strategie** während der Entsparphase. 
+    Das Tool legt besonderen Wert auf eine **100 % realistische steuerliche Betrachtung** (deutsches Steuerrecht inkl. Teilfreistellung) und beinhaltet einen dynamischen **Crash-Schutz** für den CC-ETF.
+
+    ---
+
+    #### ✨ Kernfunktionen
+
+    * **Dynamischer Backtest:** Ziehe reale historische Kursdaten via Yahoo Finance und teste beliebige Zeiträume ab 2015.
+    * **Interaktives Dashboard:** Passe Parameter wie Startkapital, monatliche Entnahme, Cash-Puffer und Dividendenrendite in Echtzeit an.
+    * **Realistische Steuersimulation:** Das System berechnet die deutsche Kapitalertragsteuer (26,375 %) unter Berücksichtigung der 30 % Teilfreistellung für Aktien-ETFs (Faktor 0,7) – sowohl für Dividenden als auch für Kursgewinne beim Anteilsverkauf.
+    * **Intelligenter Crash-Schutz:** Ein Algorithmus, der bei einem einstellbaren Drawdown automatisch vom CC-ETF in den Nasdaq 100 flüchtet und erst bei Markterholung zurückkehrt.
+    * **Visualisierung:** Gestapelte Flächendiagramme (Depot + Puffer) und Vergleichslinien zeigen dir auf einen Blick, wo dein Kapital steckt.
+    * **Excel-Export:** Lade die exakten Berechnungen (Steuern, Entnahmen, Depotwerte) aufgeschlüsselt nach Monaten in zwei separaten Tabellenblättern herunter.
+
+    ---
+
+    #### ⚖️ Die Wirkungsweise des Vergleichs (Das Herzstück)
+
+    Die App vergleicht nicht einfach nur zwei Linien im Chart, sondern simuliert zwei völlig unterschiedliche finanzielle "Lebensentwürfe" in der Entnahmephase. 
+
+    **1. Die CC-Strategie (Die "Goldene Gans")**
+    Diese Strategie zielt auf maximalen Cashflow ab, um die Substanz (die ETF-Anteile) nicht antasten zu müssen.
+    * **Das Setup:** Dein Kapital wird aufgeteilt in ein ETF-Depot (z.B. QYLD) und einen risikoarmen Cash-Puffer (Tagesgeld).
+    * **Der Motor:** Der ETF schüttet jeden Monat eine hohe Dividende aus. Nach Abzug der Steuern fließt dieses Geld in deinen Cash-Puffer.
+    * **Die Entnahme:** Deine monatlichen Lebenshaltungskosten nimmst du **ausschließlich** aus dem Cash-Puffer. Die Anzahl deiner ETF-Anteile bleibt erhalten. Nur wenn der Puffer auf 0 € fällt, führt das System Notverkäufe durch.
+
+    **2. Die Benchmark-Strategie (Der "Substanz-Verzehr")**
+    Dies ist der klassische Buy & Hold Ansatz (z.B. S&P 500 oder MSCI World) ohne nennenswerte Dividenden.
+    * **Das Setup:** Dein gesamtes Kapital liegt zu 100 % im Index-ETF.
+    * **Die Entnahme:** Um deine monatliche Auszahlung zu erhalten, **musst du jeden Monat ETF-Anteile verkaufen**.
+    * **Der Steuer-Effekt (Brutto vs. Netto):** Wenn du z.B. 6.000 € auf dem Konto brauchst, berechnet der Code exakt, wie viel Prozent deines Portfolios aus Kursgewinnen bestehen. Er entnimmt einen **höheren Brutto-Betrag**, um die Steuern zu decken. 
+    * **Der "Historische Gewinn":** Da ein solches Depot meist über Jahre bespart wurde, kannst du in der Seitenleiste einstellen, wie viel Prozent des Startkapitals bereits aus steuerpflichtigen Kursgewinnen bestehen.
+
+    ---
+
+    #### 🛡️ Der Crash-Schutz (Drawdown-Logik)
+
+    Da Covered Call ETFs in extremen Crashs stark fallen, sich danach aber durch die gecappten Kursgewinne kaum erholen, besitzt die CC-Strategie eine "Notbremse".
+
+    1. **Beobachtung:** Das System misst monatlich den Abstand des Marktes (Nasdaq 100) zu seinem letzten Allzeithoch (Drawdown).
+    2. **Flucht (Rote Linie):** Sobald der Drawdown deinen Schwellenwert erreicht, wird der CC-ETF fiktiv komplett verkauft und in den puren Nasdaq 100 umgeschichtet. So nimmst du die steile Erholungsphase zu 100 % mit.
+    3. **Rückkehr (Grüne Linie):** Sobald sich der Markt erholt hat und der Drawdown geringer als 5 % ist, schichtet das System das Kapital zurück in den CC-ETF, um die Dividenden-Ernte fortzusetzen.
+    """)
