@@ -96,7 +96,6 @@ results = pd.DataFrame(history)
 st.divider()
 fig = go.Figure()
 
-# CC Fächer
 fig.add_trace(go.Scatter(
     x=results["Datum"], y=results["Depotwert_CC"], name="Depotwert (CC)",
     stackgroup='one', fillcolor='rgba(31, 119, 180, 0.6)', line=dict(width=0.5, color='#1f77b4'),
@@ -109,7 +108,6 @@ fig.add_trace(go.Scatter(
     hovertemplate="Cash Anteil: %{y:,.0f} €<extra></extra>"
 ))
 
-# Benchmark Linien (Liegen oben auf, da keine stackgroup)
 fig.add_trace(go.Scatter(
     x=results["Datum"], y=results["Bench_Entnahme"], name="Benchmark MIT Entnahme",
     line=dict(color='#ff7f0e', width=3, dash='dash'),
@@ -121,7 +119,6 @@ fig.add_trace(go.Scatter(
     hovertemplate="Benchmark (ohne Entnahme): %{y:,.0f} €<extra></extra>"
 ))
 
-# Vertikale Linien (Korrektur: HTML-Tags für Fett statt bold=True)
 for ev in events:
     col = "red" if ev["Typ"] == "Verkauf" else "green"
     fig.add_vline(x=ev["Datum"], line_width=2, line_dash="dash", line_color=col)
@@ -133,7 +130,7 @@ for ev in events:
 fig.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.15), margin=dict(t=80))
 st.plotly_chart(fig, use_container_width=True)
 
-# Tabelle & Excel & Readme
+# Tabelle & Excel
 st.subheader("📅 Detail-Daten")
 st.dataframe(results.tail(12), use_container_width=True)
 buffer = io.BytesIO()
@@ -141,9 +138,47 @@ with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
     results.to_excel(writer, index=False, sheet_name='Backtest')
 st.download_button("📥 Excel Download", buffer.getvalue(), "Finanz-Check.xlsx")
 
-with st.expander("📖 README: Erklärung & Wirkungsweise"):
+# --- Ausführliches README ---
+with st.expander("📖 README: Erklärung & Wirkungsweise der Strategie"):
     st.markdown("""
-    * **CC-Strategie (Flächen):** Entnahmen aus Cash. Substanz bleibt geschützt.
-    * **Benchmark (Linien):** Monatlicher Verkauf inkl. Steuerberechnung.
-    * **Crash-Schutz:** Rote/Grüne Linien markieren den Modus-Wechsel.
+    ### 📊 CC-Strategie vs. Benchmark Simulator
+
+    Dieses interaktive Dashboard dient dem Backtesten und Vergleichen einer **Covered Call (CC) ETF-Strategie** mit einer klassischen **Buy & Hold (Benchmark) Strategie** während der Entsparphase. 
+    Das Tool legt besonderen Wert auf eine **100 % realistische steuerliche Betrachtung** (deutsches Steuerrecht inkl. Teilfreistellung) und beinhaltet einen dynamischen **Crash-Schutz** für den CC-ETF.
+
+    ---
+
+    #### ✨ Kernfunktionen
+
+    * **Dynamischer Backtest:** Nutzt reale historische Kursdaten via Yahoo Finance (`yfinance`) ab 2015.
+    * **Interaktive Sidebar:** Passe Kapital, Entnahme, Puffer und Dividende in Echtzeit an.
+    * **Realistische Steuersimulation:** Berechnet Kapitalertragsteuer (26,375 %) inkl. 30 % Teilfreistellung (Faktor 0,7) für Dividenden und Kursgewinne.
+    * **Intelligenter Crash-Schutz:** Wechselt bei einstellbarem Drawdown automatisch vom CC-ETF in den Nasdaq 100 und kehrt bei Erholung zurück.
+    * **Visualisierung:** Gestapelte Flächen (Depot + Puffer) und Benchmark-Linien für maximale Transparenz.
+
+    ---
+
+    #### ⚖️ Die Wirkungsweise des Vergleichs
+
+    **1. Die CC-Strategie (Die "Goldene Gans")**
+    Zielt auf maximalen Cashflow ab, um die Substanz nicht antasten zu müssen.
+    * **Setup:** Kapital wird in ETF-Depot und Cash-Puffer aufgeteilt.
+    * **Motor:** Der ETF schüttet hohe Dividenden aus, die (netto) den Puffer füllen.
+    * **Entnahme:** Kosten werden ausschließlich aus dem Cash-Puffer gedeckt. Die Anteilszahl bleibt konstant, solange der Puffer > 0 ist.
+
+    **2. Die Benchmark-Strategie (Der "Substanz-Verzehr")**
+    Klassischer Buy & Hold Ansatz (z.B. MSCI World) ohne hohe Ausschüttungen.
+    * **Setup:** Gesamtkapital liegt im Index-ETF.
+    * **Entnahme:** Monatlicher Verkauf von Anteilen.
+    * **Steuer-Effekt:** Der Code berechnet den Gewinnanteil und entnimmt einen höheren Brutto-Betrag, um die Steuerlast zu decken und das gewünschte Netto auszuzahlen.
+    * **Historischer Gewinn:** Ermöglicht die Simulation eines bereits im Plus befindlichen Depots zum Startzeitpunkt.
+
+    ---
+
+    #### 🛡️ Der Crash-Schutz (Drawdown-Logik)
+
+    Covered Call ETFs fallen in Crashs stark, erholen sich aber langsamer. Der Algorithmus fungiert als Notbremse:
+    1. **Beobachtung:** Misst monatlich den Drawdown des Nasdaq 100 zum Allzeithoch.
+    2. **Flucht (Rote Linie):** Bei Erreichen des Schwellenwerts (z.B. -20 %) wird in den puren Nasdaq (QQQ) gewechselt.
+    3. **Rückkehr (Grüne Linie):** Bei Erholung (Drawdown < 5 %) erfolgt der Rückwechsel in den CC-ETF.
     """)
