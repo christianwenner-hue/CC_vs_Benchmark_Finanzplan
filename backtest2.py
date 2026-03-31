@@ -48,7 +48,6 @@ STEUER, FREI = 0.26375, 0.70
 for i in range(len(df_m) - 1):
     akt_d, fol_d = df_m.index[i], df_m.index[i+1]
     
-    # Vorbereitender Snapshot für die Berechnung
     snapshot = {
         "Datum": akt_d, "Jahr": akt_d.year, "CC_Gesamt": cap_cc + cash_cc, 
         "Depotwert_CC": cap_cc, "Cashpuffer": cash_cc, "Bench_Entnahme": cap_bench_e, 
@@ -104,20 +103,115 @@ else:
     st.success(f"✅ **Starkes Setup!** Dein Cash-Puffer hat die gesamte Zeit überlebt.")
 
 col1, col2, col3, col4 = st.columns(4)
-cc_f, bh_f, p_f = results['CC_Gesamt'].iloc[-1], results['Bench_Entnahme'].iloc[-1], results['Cashpuffer'].iloc[-1]
-col1.metric("Endwert CC", f"{cc_f:,.0f} €", f"{cc_f - total_kapital:,.0f} €")
-col2.metric("Endwert Benchmark", f"{bh_f:,.0f} €", f"{bh_f - total_kapital:,.0f} €")
-col3.metric("Rest-Puffer", f"{p_f:,.0f} €", f"{p_f - cash_puffer_start:,.0f} €")
+cc_final = results['CC_Gesamt'].iloc[-1]
+bh_final = results['Bench_Entnahme'].iloc[-1]
+puffer_final = results['Cashpuffer'].iloc[-1]
+
+col1.metric("Endwert CC-Strategie", f"{cc_final:,.0f} €", f"{cc_final - total_kapital:,.0f} €")
+col2.metric("Endwert Benchmark", f"{bh_final:,.0f} €", f"{bh_final - total_kapital:,.0f} €")
+col3.metric("Restlicher Puffer", f"{puffer_final:,.0f} €", f"{puffer_final - cash_puffer_start:,.0f} €")
 col4.metric("Entnommen (Netto)", f"{entnommen_n:,.0f} €")
 
 # --- GRAFIK ---
 st.divider()
 fig = go.Figure()
-fig.add_trace(go.Scatter(x=results["Datum"], y=results["Depotwert_CC"], name="Depotwert (CC)", stackgroup='one', fillcolor='rgba(31, 119, 180, 0.6)', line=dict(width=0.5, color='#1f77b4'), customdata=results[["CC_Gesamt", "Cashpuffer", "Entnommen_Kum"]], hovertemplate="<b>CC Strategie</b><br>Gesamt: %{customdata[0]:,.0f} €<br>Depot: %{y:,.0f} €<br>Cash: %{customdata[1]:,.0f} €<extra></extra>"))
-fig.add_trace(go.Scatter(x=results["Datum"], y=results["Cashpuffer"], name="Cashpuffer", stackgroup='one', fillcolor='rgba(44, 160, 44, 0.6)', line=dict(width=0.5, color='#2ca02c'), hovertemplate="Cash Anteil: %{y:,.0f} €<extra></extra>"))
-fig.add_trace(go.Scatter(x=results["Datum"], y=results["Bench_Entnahme"], name="Benchmark MIT Entnahme", line=dict(color='#ff7f0e', width=3, dash='dash'), hovertemplate="Benchmark (mit Entnahme): %{y:,.0f} €<extra></extra>"))
-fig.add_trace(go.Scatter(x=results["Datum"], y=results["Bench_Pur"], name="Benchmark OHNE Entnahme", line=dict(color='#7f7f7f', width=2, dash='dot'), hovertemplate="Benchmark (ohne Entnahme): %{y:,.0f} €<extra></extra>"))
+
+# CC Fächer
+fig.add_trace(go.Scatter(
+    x=results["Datum"], y=results["Depotwert_CC"], name="Depotwert (CC)",
+    stackgroup='one', fillcolor='rgba(31, 119, 180, 0.6)', line=dict(width=0.5, color='#1f77b4'),
+    customdata=results[["CC_Gesamt", "Cashpuffer", "Entnommen_Kum"]],
+    hovertemplate="<b>CC Strategie</b><br>Gesamt: %{customdata[0]:,.0f} €<br>Depot: %{y:,.0f} €<br>Cash: %{customdata[1]:,.0f} €<extra></extra>"
+))
+fig.add_trace(go.Scatter(
+    x=results["Datum"], y=results["Cashpuffer"], name="Cashpuffer",
+    stackgroup='one', fillcolor='rgba(44, 160, 44, 0.6)', line=dict(width=0.5, color='#2ca02c'),
+    hovertemplate="Cash Anteil: %{y:,.0f} €<extra></extra>"
+))
+
+# Benchmark Linien
+fig.add_trace(go.Scatter(
+    x=results["Datum"], y=results["Bench_Entnahme"], name="Benchmark MIT Entnahme",
+    line=dict(color='#ff7f0e', width=3, dash='dash'),
+    hovertemplate="Benchmark (mit Entnahme): %{y:,.0f} €<extra></extra>"
+))
+fig.add_trace(go.Scatter(
+    x=results["Datum"], y=results["Bench_Pur"], name="Benchmark OHNE Entnahme",
+    line=dict(color='#7f7f7f', width=2, dash='dot'),
+    hovertemplate="Benchmark (ohne Entnahme): %{y:,.0f} €<extra></extra>"
+))
 
 for ev in events:
     col = "red" if ev["Typ"] == "Verkauf" else "green"
-    fig.add_vline(x=ev["Datum"], line_width=2,
+    fig.add_vline(x=ev["Datum"], line_width=2, line_dash="dash", line_color=col)
+    fig.add_annotation(x=ev["Datum"], y=1.05, yref="paper", text=f"<b>{ev['Typ']}</b>", showarrow=False, font=dict(color=col, size=12))
+
+fig.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.15, xanchor="center", x=0.5), margin=dict(t=80))
+st.plotly_chart(fig, use_container_width=True)
+
+# --- UI TABELLE (JAHRES-ANSICHT) ---
+st.subheader("📅 Jährliche Details (Stand 01.01.)")
+yearly = results.groupby("Jahr").first().reset_index()
+# Kurs-Renditen berechnen für die Farben
+yearly["CC_Kurs_pa"] = yearly["QYLD_Price"].pct_change().shift(-1) * 100
+yearly["Nasdaq_Kurs_pa"] = yearly["QQQ_Price"].pct_change().shift(-1) * 100
+
+def color_ret(val):
+    if pd.isna(val): return ''
+    return f'background-color: {"#ff9999" if val < 0 else "#99ff99"}; color: black'
+
+def color_modus(val):
+    if val == 'Index': return 'background-color: #ffcccc; color: black; font-weight: bold'
+    return 'background-color: #e6f2ff; color: black'
+
+styled_yearly = (
+    yearly[["Jahr", "CC_Gesamt", "Depotwert_CC", "Cashpuffer", "Bench_Entnahme", "CC_Kurs_pa", "Nasdaq_Kurs_pa", "Modus"]]
+    .style.format({
+        "CC_Gesamt": "{:,.0f} €", 
+        "Depotwert_CC": "{:,.0f} €", 
+        "Cashpuffer": "{:,.0f} €", 
+        "Bench_Entnahme": "{:,.0f} €", 
+        "CC_Kurs_pa": "{:,.2f} %", 
+        "Nasdaq_Kurs_pa": "{:,.2f} %"
+    })
+    .map(color_ret, subset=["CC_Kurs_pa", "Nasdaq_Kurs_pa"])
+    .map(color_modus, subset=["Modus"])
+)
+st.dataframe(styled_yearly, use_container_width=True)
+
+# --- EXCEL DOWNLOAD ---
+st.divider()
+buffer = io.BytesIO()
+with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+    results.to_excel(writer, index=False, sheet_name='Monatliche_Daten')
+st.download_button("📥 Excel Download (Monatlich)", buffer.getvalue(), "Finanz-Check_Monatlich.xlsx")
+
+# --- README ---
+with st.expander("📖 README: Erklärung & Wirkungsweise der Strategie"):
+    st.markdown("""
+    ### 📊 CC-Strategie vs. Benchmark Simulator
+
+    Dieses interaktive Dashboard dient dem Backtesten und Vergleichen einer **Covered Call (CC) ETF-Strategie** mit einer klassischen **Buy & Hold (Benchmark) Strategie** während der Entsparphase. 
+    Das Tool legt besonderen Wert auf eine **100 % realistische steuerliche Betrachtung** (deutsches Steuerrecht inkl. Teilfreistellung) und beinhaltet einen dynamischen **Crash-Schutz** für den CC-ETF.
+
+    ---
+
+    #### ✨ Kernfunktionen
+    * **Dynamischer Backtest:** Nutzt reale historische Kursdaten via Yahoo Finance ab 2015.
+    * **Interaktive Sidebar:** Passe Kapital, Entnahme, Puffer und Dividende in Echtzeit an.
+    * **Realistische Steuersimulation:** Berechnet Kapitalertragsteuer (26,375 %) inkl. 30 % Teilfreistellung (Faktor 0,7) für Dividenden und Kursgewinne.
+    * **Intelligenter Crash-Schutz:** Wechselt bei einstellbarem Drawdown automatisch vom CC-ETF in den Nasdaq 100 und kehrt bei Erholung zurück.
+
+    ---
+
+    #### ⚖️ Die Wirkungsweise des Vergleichs
+    **1. Die CC-Strategie (Die "Goldene Gans")**
+    Zielt auf maximalen Cashflow ab, um die Substanz nicht antasten zu müssen.
+    * **Setup:** Kapital wird in ETF-Depot und Cash-Puffer aufgeteilt.
+    * **Motor:** Der ETF schüttet hohe Dividenden aus, die (netto) den Puffer füllen.
+    * **Entnahme:** Kosten werden ausschließlich aus dem Cash-Puffer gedeckt.
+
+    **2. Die Benchmark-Strategie (Der "Substanz-Verzehr")**
+    * **Setup:** Gesamtkapital liegt im Index-ETF.
+    * **Entnahme:** Monatlicher Verkauf von Anteilen. Der Code berechnet den Gewinnanteil und entnimmt einen höheren Brutto-Betrag, um die Steuerlast zu decken.
+    """)
