@@ -7,7 +7,7 @@ import io
 
 # 1. Seite konfigurieren
 st.set_page_config(page_title="Vibe Coding: Strategie-Check", layout="wide")
-st.title("📊 Meine CC-Strategie vs. Benchmark")
+st.title("📊 Strategie-Check: CC vs. Benchmark")
 
 # 2. Sidebar für die Steuerung
 with st.sidebar:
@@ -38,7 +38,7 @@ def get_data(start_date, ticker):
 df_raw = get_data(start_datum, bench_ticker)
 df_m = df_raw.resample("ME").last().ffill()
 
-# 4. Simulation initialisieren
+# 4. Simulation
 cap_cc = float(total_kapital - cash_puffer_start)
 cash_cc = float(cash_puffer_start)
 cap_bench_entnahme = float(total_kapital)
@@ -53,19 +53,16 @@ FREI = 0.70
 history = []
 events = []
 entnommen_total_netto = 0.0
-entnommen_bench_brutto_total = 0.0 
 
 for i in range(len(df_m) - 1):
     akt_d, fol_d = df_m.index[i], df_m.index[i+1]
     
     snapshot = {
         "Datum": akt_d, "Jahr": akt_d.year,
-        "CC_Gesamt": cap_cc + cash_cc, "Depotwert": cap_cc, "Cashpuffer": cash_cc,
-        "Entnommen_Total_Netto": entnommen_total_netto, 
-        "Bench_Entnahme": cap_bench_entnahme, "Bench_Brutto_Total": entnommen_bench_brutto_total,
-        "Bench_Pur": cap_bench_pur,           
-        "QYLD_Price": float(df_m["QYLD"].iloc[i]), "QQQ_Price": float(df_m["QQQ"].iloc[i]), 
-        "Modus": "CC" if modus_cc else "Index", "Steuern_Monat": 0.0 
+        "CC_Gesamt": cap_cc + cash_cc, "Depotwert_CC": cap_cc, "Cashpuffer": cash_cc,
+        "Bench_Entnahme": cap_bench_entnahme, "Bench_Pur": cap_bench_pur,
+        "Modus": "CC" if modus_cc else "Index",
+        "QYLD_Price": float(df_m["QYLD"].iloc[i]), "QQQ_Price": float(df_m["QQQ"].iloc[i])
     }
 
     qy_p = (df_m["QYLD"].iloc[i+1] / df_m["QYLD"].iloc[i]) - 1
@@ -101,16 +98,15 @@ for i in range(len(df_m) - 1):
     cap_bench_pur *= (1 + bench_p)
     cap_bench_entnahme *= (1 + bench_p)
     
-    g_quote = (cap_bench_entnahme - einstand_bench) / cap_bench_entnahme if cap_bench_entnahme > einstand_bench else 0
+    g_quote = max(0, (cap_bench_entnahme - einstand_bench) / cap_bench_entnahme) if cap_bench_entnahme > 0 else 0
     eff_st = g_quote * FREI * STEUER
     brutto_v = wunsch_netto / (1 - eff_st)
     
-    cap_before = cap_bench_entnahme
+    v_quote = brutto_v / cap_bench_entnahme if cap_bench_entnahme > brutto_v else 1
+    einstand_bench *= (1 - v_quote)
     cap_bench_entnahme -= brutto_v
-    entnommen_bench_brutto_total += brutto_v
-    if cap_before > 0:
-        einstand_bench *= (1 - (brutto_v / cap_before))
-
+    
+    snapshot["Entnommen_Kum"] = entnommen_total_netto
     history.append(snapshot)
 
 results = pd.DataFrame(history)
@@ -120,69 +116,67 @@ st.divider()
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Endwert CC", f"{results['CC_Gesamt'].iloc[-1]:,.0f} €")
 col2.metric("Endwert Benchmark", f"{results['Bench_Entnahme'].iloc[-1]:,.0f} €")
-col3.metric("Rest-Cash", f"{results['Cashpuffer'].iloc[-1]:,.0f} €")
+col3.metric("Rest-Puffer", f"{results['Cashpuffer'].iloc[-1]:,.0f} €")
 col4.metric("Entnommen (Netto)", f"{entnommen_total_netto:,.0f} €")
 
 st.divider()
 
-# DIE SCHÖNE GRAFIK LOGIK
 fig = go.Figure()
 
-# 1. Depot-Fläche (Blau)
+# 1. DEPOT-FLÄCHE (BLAU) - Stackgroup 1
 fig.add_trace(go.Scatter(
-    x=results["Datum"], y=results["Depotwert"], name="Depotwert (CC)", 
-    mode='lines', line=dict(width=0), fillcolor='rgba(31, 119, 180, 0.7)',
-    stackgroup='one', customdata=results[["CC_Gesamt", "Cashpuffer", "Entnommen_Total_Netto"]],
-    hovertemplate="<b>CC-Strategie</b><br>Gesamt: %{customdata[0]:,.0f} €<br>Depot: %{y:,.0f} €<br>Cash: %{customdata[1]:,.0f} €<extra></extra>"
+    x=results["Datum"], y=results["Depotwert_CC"], name="Depotwert (CC)",
+    stackgroup='one', fillcolor='rgba(31, 119, 180, 0.6)', line=dict(width=0.5, color='#1f77b4'),
+    customdata=results[["CC_Gesamt", "Cashpuffer", "Entnommen_Kum"]],
+    hovertemplate="<b>CC Strategie</b><br>Gesamt: %{customdata[0]:,.0f} €<br>Depot: %{y:,.0f} €<br>Cash: %{customdata[1]:,.0f} €<extra></extra>"
 ))
 
-# 2. Cash-Fläche (Grün)
+# 2. CASH-FLÄCHE (GRÜN) - Stackgroup 1
 fig.add_trace(go.Scatter(
-    x=results["Datum"], y=results["Cashpuffer"], name="Cashpuffer", 
-    mode='lines', line=dict(width=0), fillcolor='rgba(44, 160, 44, 0.7)',
-    stackgroup='one', hovertemplate="Cash-Anteil: %{y:,.0f} €<extra></extra>"
+    x=results["Datum"], y=results["Cashpuffer"], name="Cashpuffer",
+    stackgroup='one', fillcolor='rgba(44, 160, 44, 0.6)', line=dict(width=0.5, color='#2ca02c'),
+    hovertemplate="Cash Anteil: %{y:,.0f} €<extra></extra>"
 ))
 
-# 3. Benchmark MIT Entnahme (Orange gestrichelt)
+# 3. BENCHMARK MIT ENTNAHME (ORANGE GESTRICHELT) - KEINE Stackgroup (liegt oben drauf)
 fig.add_trace(go.Scatter(
-    x=results["Datum"], y=results["Bench_Entnahme"], name="Benchmark MIT Entnahme", 
-    line=dict(width=3, dash='dash', color='#ff7f0e'),
-    hovertemplate="Benchmark (Entnahme): %{y:,.0f} €<extra></extra>"
+    x=results["Datum"], y=results["Bench_Entnahme"], name="Benchmark MIT Entnahme",
+    line=dict(color='#ff7f0e', width=3, dash='dash'),
+    hovertemplate="Benchmark (mit Entnahme): %{y:,.0f} €<extra></extra>"
 ))
 
-# 4. Benchmark OHNE Entnahme (Grau gepunktet)
+# 4. BENCHMARK OHNE ENTNAHME (GRAU GEPUNKTET) - KEINE Stackgroup
 fig.add_trace(go.Scatter(
-    x=results["Datum"], y=results["Bench_Pur"], name="Benchmark OHNE Entnahme", 
-    line=dict(width=2, dash='dot', color='#7f7f7f'),
-    hovertemplate="Marktwert Pur: %{y:,.0f} €<extra></extra>"
+    x=results["Datum"], y=results["Bench_Pur"], name="Benchmark OHNE Entnahme",
+    line=dict(color='#7f7f7f', width=2, dash='dot'),
+    hovertemplate="Benchmark (ohne Entnahme): %{y:,.0f} €<extra></extra>"
 ))
 
-# Vertikale Linien für Crash-Schutz
+# VERTIKALE LINIEN (CRASH-SCHUTZ)
 for ev in events:
-    col = "red" if ev["Typ"] == "Verkauf" else "green"
-    fig.add_vline(x=ev["Datum"], line_width=2, line_dash="dash", line_color=col)
+    color = "red" if ev["Typ"] == "Verkauf" else "green"
+    fig.add_vline(x=ev["Datum"], line_width=2, line_dash="dash", line_color=color)
+    fig.add_annotation(x=ev["Datum"], y=1.05, yref="paper", text=f"{ev['Typ']}", showarrow=False, font=dict(color=color, size=12, bold=True))
 
-fig.update_layout(margin=dict(t=40), hovermode="x unified", legend=dict(orientation="h", y=1.05))
+fig.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.1), margin=dict(t=80))
 st.plotly_chart(fig, use_container_width=True)
 
-# Tabelle & Excel
-st.subheader("📅 Jährliche Details")
-yearly = results.groupby("Jahr").first().reset_index()
-st.dataframe(yearly[["Jahr", "CC_Gesamt", "Depotwert", "Cashpuffer", "Bench_Entnahme", "Modus"]], use_container_width=True)
+# TABELLE & DOWNLOAD
+st.subheader("📅 Detail-Daten")
+st.dataframe(results.tail(12), use_container_width=True)
 
 buffer = io.BytesIO()
 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-    results.to_excel(writer, index=False, sheet_name='Monatsdaten')
-st.download_button("📥 Excel-Download", data=buffer.getvalue(), file_name="Backtest.xlsx")
+    results.to_excel(writer, index=False, sheet_name='Backtest')
+st.download_button("📥 Excel-Download", buffer.getvalue(), "Finanz-Backtest.xlsx")
 
-# DAS README GANZ UNTEN
+# README EXPANDER
 st.divider()
 with st.expander("📖 README: Erklärung & Wirkungsweise"):
     st.markdown("""
-    ### 📊 CC-Strategie vs. Benchmark Simulator
-    Dieses Tool vergleicht eine Covered Call Strategie (Cashflow-orientiert) mit einem klassischen Buy & Hold Ansatz.
-    
-    * **CC-Strategie:** Entnahmen erfolgen aus dem Cash-Puffer (Dividenden). Die Substanz bleibt geschützt.
-    * **Benchmark:** Anteile werden monatlich verkauft. Steuern fallen nur auf den Gewinnanteil an (berücksichtigt historischen Gewinn).
-    * **Crash-Schutz:** Wechselt bei hohem Drawdown in den Index, um die Erholung voll mitzunehmen.
+    ### Wirkungsweise des Vergleichs
+    * **CC-Strategie (Farbige Flächen):** Zeigt die Summe aus Depot (Blau) und Cash-Puffer (Grün). Entnahmen erfolgen aus dem Cash-Puffer.
+    * **Benchmark MIT Entnahme (Orange gestrichelt):** Simuliert den Verkauf von Index-Anteilen inkl. Brutto-Steuer-Berechnung.
+    * **Benchmark OHNE Entnahme (Grau gepunktet):** Zeigt das theoretische Wachstum ohne jegliche Entnahme.
+    * **Crash-Schutz (Vertikale Linien):** Rote Linie = Ausstieg aus CC / Grüne Linie = Rückkehr zu CC.
     """)
